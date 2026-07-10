@@ -1223,51 +1223,14 @@ function renderSprintFromModel(m, opts){
     <p class="text-[12px] mb-3" style="color:var(--ink-soft)">ใครถือการ์ดไหน จบหรือยัง — กดการ์ดเพื่อเปิดใน Jira (tab ใหม่)</p>
     <div class="grid md:grid-cols-2 gap-4 mb-6">${peopleCards||'<p class="text-[12px]" style="color:var(--ink-faint)">ไม่มีงานในช่วงนี้</p>'}</div>`;
 
-  // ---- project label chips: quick overview of which labels are in use + active count ----
-  const chipTint=['#EEF0FF','#DCFCE7','#FEF3C7','#F3EEFF','#EAF2FF','#FEE2E2','#E0F2FE','#F1F5F9'];
-  const labelChips = (m.workByProduct||[]).map((wp,i)=>{
-    const tint=chipTint[i%chipTint.length];
-    const activeCount = wp.total - wp.done;
-    const isNoLabel = wp.product==='ไม่ระบุ Project label';
-    return `<a href="#sprProd-${i}" class="tag px-3 py-1.5 text-[12px] font-semibold flex items-center gap-1.5" style="background:${isNoLabel?'#FEE2E2':tint};color:${isNoLabel?'#EF4444':'var(--ink)'};text-decoration:none">
-      ${esc(wp.product)}
-      <span class="mono px-1.5 py-0.5" style="background:rgba(0,0,0,.08);border-radius:999px;font-size:10px">${activeCount} active</span>
-    </a>`;
-  }).join('');
-  const labelChipsSec = `<div class="card p-4 mb-6">
-    <div class="flex items-center justify-between mb-1">
-      <h3 class="text-[15px] font-bold">🏷️ Project label ที่ใช้ใน sprint นี้</h3>
-      <span class="text-[11px]" style="color:var(--ink-soft)">${(m.workByProduct||[]).length} labels</span>
-    </div>
-    <p class="text-[12px] mb-3" style="color:var(--ink-soft)">จำนวน active tasks (ยังไม่ done) ต่อ label — กดเพื่อเลื่อนไปดูรายละเอียดด้านล่าง</p>
-    <div class="flex flex-wrap gap-2">${labelChips||'<p class="text-[12px]" style="color:var(--ink-faint)">ไม่มีงานในช่วงนี้</p>'}</div>
-  </div>`;
-
-  // ---- work by product / project label ----
-  const prodTint=chipTint;
-  const workCards = (m.workByProduct||[]).map((wp,i)=>{
-    const tint=prodTint[i%prodTint.length];
-    return `<div class="card p-4" id="sprProd-${i}">
-      <div class="flex items-center gap-2 mb-2">
-        <span class="tag px-2.5 py-1 text-[12px] font-bold" style="background:${tint};color:var(--ink)">${esc(wp.product)}</span>
-        <span class="text-[11px]" style="color:var(--ink-soft)">${wp.done}/${wp.total} done · ${wp.estH}h est</span>
-      </div>
-      <div class="space-y-1">${wp.tasks.map(t=>`
-        <a href="${JIRA_BASE}${t.key}" target="_blank" rel="noopener" class="flex items-start gap-2 text-[12px] py-0.5 hover-row" style="text-decoration:none;color:var(--ink);border-radius:6px">
-          <span style="color:${t.done?'#22C55E':statusColor(t.status)};flex:none;line-height:1.4">${t.done?'✓':'•'}</span>
-          <span style="flex:1">${esc(t.summary)}</span>
-          ${sprDates(t)}
-          <span class="mono text-[10px]" style="color:var(--brand);flex:none">${t.key}</span>
-        </a>`).join('')}</div>
-    </div>`;
-  }).join('');
-  const workSec = `<h3 class="text-[15px] font-bold mb-1">📦 งานที่ทีมทำใน sprint นี้</h3>
-    <p class="text-[12px] mb-3" style="color:var(--ink-soft)">แยกตาม Project label จาก Jira — หัวข้อเนื้องานที่ทำในช่วงนี้</p>
-    <div class="grid md:grid-cols-2 gap-4 mb-6">${workCards||'<p class="text-[12px]" style="color:var(--ink-faint)">ไม่มีงานในช่วงนี้</p>'}</div>`;
-
   // time tracking completeness
   const tr=m.tracking;
-  const trList = tr.incomplete.length? tr.incomplete.map(t=>`
+  const missBadge = (label) => `<span class="tag px-2 py-0.5 text-[11px] font-semibold mr-1" style="background:#FEF3C7;color:#D97706">ขาด ${label}</span>`;
+  const trList = tr.incomplete.length? `<div class="grid md:grid-cols-2 gap-x-5">${tr.incomplete.map(t=>{
+    const missLabels=[];
+    if(t.missEst) missLabels.push('Original Estimate');
+    if(t.missSpent) missLabels.push('Time Spent');
+    return `
     <div class="py-2.5" style="border-bottom:1px solid var(--line)">
       <div class="flex items-center gap-2 flex-wrap">
         <a href="${JIRA_BASE}${t.key}" target="_blank" rel="noopener" class="mono font-bold text-[12px]" style="color:var(--brand);text-decoration:none">${t.key}</a>
@@ -1277,8 +1240,9 @@ function renderSprintFromModel(m, opts){
       </div>
       <div class="text-[12px] mt-1">${esc(t.summary)}</div>
       ${(t.start||t.due)?`<div class="mono text-[10px] mt-0.5" style="color:var(--ink-faint)">${t.start||'—'} → ${t.due||'—'}</div>`:''}
-      <div class="mt-1">${(t.missEst&&t.missSpent)?'<span class="tag px-2 py-0.5 text-[11px] font-semibold" style="background:#FEE2E2;color:#EF4444">ขาด Original Estimate และ Time Spent</span>':t.missEst?'<span class="tag px-2 py-0.5 text-[11px] font-semibold" style="background:#FEF3C7;color:#D97706">ขาด Original Estimate</span>':'<span class="tag px-2 py-0.5 text-[11px] font-semibold" style="background:#FEF3C7;color:#D97706">ขาด Time Spent</span>'}</div>
-    </div>`).join('') : '<p class="text-[12px] py-2" style="color:#22C55E">กรอกครบทุก task 👍</p>';
+      <div class="mt-1 flex flex-wrap gap-1">${missLabels.length>=2?`<span class="tag px-2 py-0.5 text-[11px] font-semibold" style="background:#FEE2E2;color:#EF4444">ขาด ${missLabels.join(' และ ')}</span>`:missBadge(missLabels[0])}</div>
+    </div>`;
+  }).join('')}</div>` : '<p class="text-[12px] py-2" style="color:#22C55E">กรอกครบทุก task 👍</p>';
   const followList = Object.entries(tr.followMap).length? Object.entries(tr.followMap).map(([person,tasks])=>
     `<div class="flex items-center gap-2 mb-2 flex-wrap">
       <div class="text-[12px] flex-1"><b>${esc(person)}</b> — ${tasks.length} task ${tasks.every(x=>x.missEst&&x.missSpent)?'ไม่มี Est/Spent เลย':'ขาดข้อมูล tracking'}</div>
@@ -1291,7 +1255,7 @@ function renderSprintFromModel(m, opts){
     <div class="flex items-center gap-3 mb-1">
       <div class="flex items-center justify-center" style="width:34px;height:34px;background:var(--brand-soft);border-radius:9px">⏱️</div>
       <div><h3 class="text-[15px] font-bold">Time tracking completeness</h3>
-      <p class="text-[11px]" style="color:var(--ink-soft)">issuetype = Epic, Task, Request Task · ไม่รวม Hold/Backlog/Completed</p></div>
+      <p class="text-[11px]" style="color:var(--ink-soft)">issuetype = Epic, Task, Request Task · ไม่รวม Hold/Backlog/Completed · ต้องมีครบ Est + Spent</p></div>
       <div class="ml-auto text-right"><div class="text-[20px] font-extrabold" style="color:${tr.pct>=85?'#22C55E':'#F59E0B'}">${tr.pct}%</div><div class="text-[11px]" style="color:var(--ink-soft)">${tr.complete}/${tr.total} กรอกครบ</div></div>
     </div>
     <div class="h-2 my-3" style="background:var(--line-soft);border-radius:999px;overflow:hidden"><div style="width:${tr.pct}%;height:100%;background:${tr.pct>=85?'#22C55E':'#F59E0B'};border-radius:999px"></div></div>
@@ -1305,15 +1269,9 @@ function renderSprintFromModel(m, opts){
       <div class="flex items-center justify-center" style="width:34px;height:34px;background:#FEF9C3;border-radius:9px">🏆</div>
       <div><h3 class="text-[15px] font-bold">Sprint Wins</h3><p class="text-[11px]" style="color:var(--ink-soft)">สรุปสำหรับพูดเชียร์ทีม</p></div>
     </div>
-    <div class="grid md:grid-cols-2 gap-5">
-      <div>
-        <div class="text-[13px] font-bold mb-2" style="color:#16A34A">● สิ่งที่น่าชื่นชม</div>
-        ${wins.praise.map(x=>`<div class="flex gap-2 text-[13px] mb-2"><span style="color:#22C55E;flex:none">●</span><span>${esc(x)}</span></div>`).join('')}
-      </div>
-      <div>
-        <div class="text-[13px] font-bold mb-2" style="color:#D97706">● สิ่งที่ต้องติดตาม</div>
-        ${wins.follow.map(x=>`<div class="flex gap-2 text-[13px] mb-2"><span style="color:#F59E0B;flex:none">●</span><span>${esc(x)}</span></div>`).join('')}
-      </div>
+    <div>
+      <div class="text-[13px] font-bold mb-2" style="color:#16A34A">● สิ่งที่น่าชื่นชม</div>
+      ${wins.praise.map(x=>`<div class="flex gap-2 text-[13px] mb-2"><span style="color:#22C55E;flex:none">●</span><span>${esc(x)}</span></div>`).join('')}
     </div>
   </div>`;
 
@@ -1321,7 +1279,7 @@ function renderSprintFromModel(m, opts){
     <span class="text-[12px]" style="color:var(--brand)">📌 กำลังดู snapshot ที่บันทึกไว้ · ${esc(opts.savedLabel||'')}</span>
     <button id="sprBackLive" class="chip text-[12px] px-3 py-1 ml-auto" style="color:var(--ink-soft)">← กลับหน้า Sprint Report</button></div>` : '';
 
-  return savedBanner + nav + hero + kpis + labelChipsSec + workSec + peopleSec + trSec + winsSec;
+  return savedBanner + nav + hero + kpis + peopleSec + trSec + winsSec;
 }
 
 // ---- Slack reminder: build message + confirm + open DM ----
@@ -1331,8 +1289,10 @@ function sprSlackSend(person){
   const tasks = (m.tracking.followMap||{})[person]||[];
   if(!tasks.length){ alert('ไม่มี task ค้างของ '+person); return; }
   const lines = tasks.map(t=>{
-    const miss = (t.missEst&&t.missSpent)?'ขาด Original Estimate และ Time Spent'
-      : t.missEst?'ขาด Original Estimate':'ขาด Time Spent';
+    const missLabels=[];
+    if(t.missEst) missLabels.push('Original Estimate');
+    if(t.missSpent) missLabels.push('Time Spent');
+    const miss = 'ขาด ' + missLabels.join(' และ ');
     return `• ${t.key} — ${t.summary}\n   ↳ ${miss}\n   ↳ ${JIRA_BASE}${t.key}`;
   }).join('\n');
   const msg = `สวัสดีค่ะ ${person} 👋\n\nขอรบกวนอัปเดต time tracking ใน Jira ก่อนปิด sprint (${m.start} → ${m.end}) นะคะ\nมี ${tasks.length} การ์ดที่ยังกรอกข้อมูลไม่ครบ:\n\n${lines}\n\nรบกวนกรอกให้ครบก่อน sprint ถัดไปนะคะ ขอบคุณมากค่ะ 🙏`;
