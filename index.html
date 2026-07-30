@@ -41,6 +41,19 @@ tailwind.config = { theme: { extend: {
   }
   html{ scroll-behavior:smooth; }
   body{ font-family:'Inter','Noto Sans Thai',system-ui,sans-serif; color:var(--ink); background:var(--bg); -webkit-font-smoothing:antialiased; }
+  /* Bump every fixed px font-size up by ~10% for better readability.
+     Tailwind arbitrary text-[Npx] classes are fixed px and don't scale with
+     the root, so each used size is overridden explicitly. */
+  .text-\[9px\]{font-size:9.9px!important}
+  .text-\[10px\]{font-size:11px!important}
+  .text-\[11px\]{font-size:12.1px!important}
+  .text-\[12px\]{font-size:13.2px!important}
+  .text-\[13px\]{font-size:14.3px!important}
+  .text-\[14px\]{font-size:15.4px!important}
+  .text-\[15px\]{font-size:16.5px!important}
+  .text-\[20px\]{font-size:22px!important}
+  .text-\[30px\]{font-size:33px!important}
+  .text-\[40px\]{font-size:44px!important}
   .mono{ font-family:'JetBrains Mono',monospace; }
   .tnum{ font-variant-numeric:tabular-nums; }
   ::-webkit-scrollbar{ height:8px; width:8px; }
@@ -961,8 +974,8 @@ function daysAgo(n){ const d=new Date(); d.setDate(d.getDate()-n); return d.toIS
 const SPRINT_ANCHOR = '2026-06-29';       // baseline sprint start
 const SPRINT_LEN = 14;                      // days between sprints
 const SPRINT_END_OFFSET = 11;               // start+11 => 29 Jun -> 10 Jul
-const SPRINT_TYPES = ['Epic','Task','Request Task'];
-const SPRINT_EXCLUDE = ['Hold','Backlog','Completed'];
+const SPRINT_TYPES = ['Task','Request Task']; // Epic excluded: no Est/Spent to fill, and its child Tasks are already counted individually
+const SPRINT_EXCLUDE = ['Hold','Backlog']; // Completed stays IN the pool (counts as done) so past sprints show complete history
 const SPRINT_LOG_KEY = 'uxui_sprint_reports_v1';
 const sprintState = { offset: null, customStart:null, customEnd:null };  // null => auto (current)
 
@@ -1005,7 +1018,7 @@ function sprintPool(start,end){
     inSprintDate(o,start,end)
   );
 }
-const sprIsDone = o => o.status==='Done (Weekly)' || o.statusCat==='Done';
+const sprIsDone = o => o.status==='Done (Weekly)' || o.status==='Completed' || o.statusCat==='Done';
 const sprH1 = n => Math.round((n||0)*10)/10;
 
 // ---- compute the full report model (used for both live + saved snapshot) ----
@@ -1021,6 +1034,8 @@ function computeSprintModel(){
   const {off,start,end,custom} = sprintWindow();
   const pool = sprintPool(start,end);
   const done = pool.filter(sprIsDone);
+  const doneWeekly = pool.filter(o=>o.status==='Done (Weekly)');
+  const completed = pool.filter(o=>o.status==='Completed');
   const review = pool.filter(o=>o.status==='Review / Feedback');
   const prog = pool.filter(o=>o.status==='In-Progress');
   const estH = sprH1(pool.reduce((s,o)=>s+(o.aggEstH||o.estH||0),0));
@@ -1041,14 +1056,16 @@ function computeSprintModel(){
       est:pest, spent:psp, util: pest?Math.round(psp/pest*100):0 };
   });
 
-  // time tracking completeness (same pool)
-  const incomplete = pool.filter(o=>(o.estH||0)===0 || (o.spentH||0)===0).map(o=>({
+  // time tracking completeness — exclude Completed cards entirely (permanently
+  // closed, no point chasing Est/Spent). Both numerator and denominator use trackPool.
+  const trackPool = pool.filter(o=>o.status!=='Completed');
+  const incomplete = trackPool.filter(o=>(o.estH||0)===0 || (o.spentH||0)===0).map(o=>({
     key:o.key, summary:o.summary, assignee:short(o.assignee), type:o.type, status:o.status,
     start:o.start, due:o.due,
     missEst:(o.estH||0)===0, missSpent:(o.spentH||0)===0
   }));
-  const complete = pool.length - incomplete.length;
-  const trackPct = pool.length?Math.round(complete/pool.length*100):100;
+  const complete = trackPool.length - incomplete.length;
+  const trackPct = trackPool.length?Math.round(complete/trackPool.length*100):100;
   // group incomplete by person for follow-up
   const followMap={};
   incomplete.forEach(t=>{ (followMap[t.assignee]=followMap[t.assignee]||[]).push(t); });
@@ -1078,10 +1095,11 @@ function computeSprintModel(){
 
   const unlabeled = pool.filter(o=>!hasProjectLabel(o)).length;
   return { off,start,end, custom:!!custom, count:pool.length, unlabeled,
-    done:done.length, review:review.length, prog:prog.length, doneRate,
+    done:done.length, doneWeekly:doneWeekly.length, completed:completed.length,
+    review:review.length, prog:prog.length, doneRate,
     estH, spentH, util,
     people, products, workByProduct,
-    tracking:{ complete, total:pool.length, pct:trackPct, incomplete, followMap },
+    tracking:{ complete, total:trackPool.length, pct:trackPct, incomplete, followMap },
     _pool:pool // for wins gen (not serialized)
   };
 }
@@ -1113,7 +1131,7 @@ function sprintWins(m){
     if(prog.length>=2) follow.push(`${person} ${prog.length} tasks In-Progress — ยังไม่มี estimate เลย ${pick(['วาง scope หน่อยน้า ไม่งั้นงานจะกลายเป็นหลุมดำ','ก่อนมันจะบวมเป็นงานช้าง','PM อยากรู้ว่าจะเสร็จชาตินี้ไหม 😅'])}`);
   });
   // long-pending review with estimate
-  const rev=m._pool.filter(o=>o.status==='Review / Feedback' && (o.estH||0)>=20).sort((a,b)=>(b.estH||0)-(a.estH||0))[0];
+  const rev=(m._pool||[]).filter(o=>o.status==='Review / Feedback' && (o.estH||0)>=20).sort((a,b)=>(b.estH||0)-(a.estH||0))[0];
   if(rev) follow.push(`${short(rev.assignee)} · ${rev.summary.slice(0,40)} (${rev.estH}h est) ค้าง review นานจน${pick(['เริ่มมีแมงมุมมาชักใย','ลืมไปแล้วว่าทำอะไร','งานอื่นแซงไปหมดแล้ว'])}`);
   const noLab=m.unlabeled||0;
   if(noLab>0) follow.push(`${noLab} การ์ดยังไม่ได้ใส่ Project label — ${pick(['ใส่หน่อยน้า รายงานจะได้จัดกลุ่มถูก','ไม่งั้นงานจะไปกองรวมกันในถังไม่ระบุ','Jira ไม่รู้ว่างานนี้อยู่โปรเจกต์ไหน 🤔'])}`);
@@ -1174,7 +1192,7 @@ function renderSprintFromModel(m, opts){
           บันทึก Sprint Report
         </button>
       </div>
-      <div class="text-[11px] mt-2" style="color:var(--ink-faint)">${m.custom?'📌 กำลังดูช่วงที่เลือกเอง':'🔄 Sprint อัตโนมัติ (เลื่อน +2 สัปดาห์ตามวันจริง)'} · กรองด้วย <b>Start date–Due date</b> ที่ทับช่วง sprint · ไม่รวม Hold / Backlog / Completed · Epic / Task / Request Task</div>
+      <div class="text-[11px] mt-2" style="color:var(--ink-faint)">${m.custom?'📌 กำลังดูช่วงที่เลือกเอง':'🔄 Sprint อัตโนมัติ (เลื่อน +2 สัปดาห์ตามวันจริง)'} · กรองด้วย <b>Start date–Due date</b> ที่ทับช่วง sprint · ไม่รวม Hold / Backlog · Task / Request Task (ไม่รวม Epic)</div>
     </div>`;
 
   // hero
@@ -1184,7 +1202,13 @@ function renderSprintFromModel(m, opts){
         <span style="width:7px;height:7px;border-radius:50%;background:var(--brand)"></span>
         <span class="text-[11px] font-bold uppercase tracking-wider" style="color:var(--brand)">UX/UI Team · Sprint 2 Week</span>
       </div>
-      <h2 class="text-[30px] font-extrabold leading-tight" style="letter-spacing:-.02em">Performance <span style="color:var(--brand)">Report</span></h2>
+      <div class="flex items-start justify-between gap-3 flex-wrap">
+        <h2 class="text-[30px] font-extrabold leading-tight" style="letter-spacing:-.02em">Performance <span style="color:var(--brand)">Report</span></h2>
+        <button onclick="sprCopySummary()" class="no-print text-[12px] font-semibold px-3.5 py-2 flex items-center gap-1.5" style="background:var(--brand);color:#fff;border-radius:10px;border:none;cursor:pointer;flex:none">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+          คัดลอกสรุปลง Slack
+        </button>
+      </div>
       <div class="flex flex-wrap gap-2 mt-3">
         <span class="chip text-[12px] px-3 py-1.5" style="color:var(--ink-soft)">📅 ${winLabel}</span>
         <span class="chip text-[12px] px-3 py-1.5" style="color:var(--ink-soft)">👥 ${m.people.length} Designers</span>
@@ -1193,8 +1217,8 @@ function renderSprintFromModel(m, opts){
     </div>`;
 
   const kpis = `<div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
-    ${kpiCard('Active Tasks', m.count, 'Epic / Task / Request')}
-    ${kpiCard('Done', m.done, m.doneRate+'% done rate', '#22C55E')}
+    ${kpiCard('Active Tasks', m.count, 'Task / Request')}
+    ${kpiCard('Done', m.done, `${m.doneRate}% · Weekly ${m.doneWeekly} · Completed ${m.completed}`, '#22C55E')}
     ${kpiCard('In Review', m.review, 'รอ feedback', '#F59E0B')}
     ${kpiCard('In Progress', m.prog, 'งานกำลังทำ', '#4F46E5')}
     ${kpiCard('Logged', m.spentH+'h', 'จาก '+m.estH+'h est', '#8B5CF6')}
@@ -1246,16 +1270,16 @@ function renderSprintFromModel(m, opts){
   const followList = Object.entries(tr.followMap).length? Object.entries(tr.followMap).map(([person,tasks])=>
     `<div class="flex items-center gap-2 mb-2 flex-wrap">
       <div class="text-[12px] flex-1"><b>${esc(person)}</b> — ${tasks.length} task ${tasks.every(x=>x.missEst&&x.missSpent)?'ไม่มี Est/Spent เลย':'ขาดข้อมูล tracking'}</div>
-      ${readOnly?'':`<button onclick="sprSlackSend('${esc(person).replace(/'/g,"\\'")}')" class="text-[11px] px-2.5 py-1 flex items-center gap-1" style="background:#4A154B;color:#fff;border-radius:8px;border:none;cursor:pointer">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M5.04 15.12a2.5 2.5 0 1 1-2.5-2.5h2.5v2.5zm1.26 0a2.5 2.5 0 0 1 5 0v6.26a2.5 2.5 0 0 1-5 0v-6.26zM8.8 5.04a2.5 2.5 0 1 1 2.5-2.5v2.5H8.8zm0 1.26a2.5 2.5 0 0 1 0 5H2.54a2.5 2.5 0 0 1 0-5H8.8zM18.96 8.8a2.5 2.5 0 1 1 2.5 2.5h-2.5V8.8zm-1.26 0a2.5 2.5 0 0 1-5 0V2.54a2.5 2.5 0 0 1 5 0V8.8zM15.2 18.96a2.5 2.5 0 1 1-2.5 2.5v-2.5h2.5zm0-1.26a2.5 2.5 0 0 1 0-5h6.26a2.5 2.5 0 0 1 0 5H15.2z"/></svg>
-        ส่ง Slack
+      ${readOnly?'':`<button onclick="sprSlackSend('${esc(person).replace(/'/g,"\\'")}')" class="text-[11px] px-2.5 py-1 flex items-center gap-1" style="background:var(--brand);color:#fff;border-radius:8px;border:none;cursor:pointer">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+        คัดลอกข้อความ
       </button>`}
     </div>`).join('') : '';
   const trSec = `<div class="card p-5 mb-6">
     <div class="flex items-center gap-3 mb-1">
       <div class="flex items-center justify-center" style="width:34px;height:34px;background:var(--brand-soft);border-radius:9px">⏱️</div>
       <div><h3 class="text-[15px] font-bold">Time tracking completeness</h3>
-      <p class="text-[11px]" style="color:var(--ink-soft)">issuetype = Epic, Task, Request Task · ไม่รวม Hold/Backlog/Completed · ต้องมีครบ Est + Spent</p></div>
+      <p class="text-[11px]" style="color:var(--ink-soft)">issuetype = Task, Request Task (ไม่รวม Epic) · ไม่รวม Hold/Backlog · ไม่นับงานที่ปิด Completed · ต้องมีครบ Est + Spent</p></div>
       <div class="ml-auto text-right"><div class="text-[20px] font-extrabold" style="color:${tr.pct>=85?'#22C55E':'#F59E0B'}">${tr.pct}%</div><div class="text-[11px]" style="color:var(--ink-soft)">${tr.complete}/${tr.total} กรอกครบ</div></div>
     </div>
     <div class="h-2 my-3" style="background:var(--line-soft);border-radius:999px;overflow:hidden"><div style="width:${tr.pct}%;height:100%;background:${tr.pct>=85?'#22C55E':'#F59E0B'};border-radius:999px"></div></div>
@@ -1282,7 +1306,38 @@ function renderSprintFromModel(m, opts){
   return savedBanner + nav + hero + kpis + peopleSec + trSec + winsSec;
 }
 
-// ---- Slack reminder: build message + confirm + open DM ----
+// ---- Copy a Slack-ready sprint summary (numbers + Sprint Wins) ----
+function sprCopySummary(){
+  const m = window.__sprLastModel;
+  if(!m){ alert('ยังไม่มีข้อมูล'); return; }
+  const wins = sprintWins(m);
+  const praiseLines = (wins.praise||[]).map(x=>`🟢 ${x}`).join('\n');
+  const msg =
+`📊 Sprint Report · UX/UI Team
+🗓️ ${m.start} → ${m.end} · 👥 ${m.people.length} Designers
+
+━━━━━━━━━━━━━━━━━━
+📌 ภาพรวม
+• 🎯 Active tasks: ${m.count} งาน
+• ✅ เสร็จแล้ว: ${m.done} งาน (${m.doneRate}%)
+   └ 🟢 Done (Weekly): ${m.doneWeekly} · 🔒 Completed: ${m.completed}
+• 👀 รอ Feedback: ${m.review} งาน
+• 🔨 กำลังทำ: ${m.prog} งาน
+• ⏱️ Logged: ${m.spentH}h / ${m.estH}h est (${m.util}%)
+
+━━━━━━━━━━━━━━━━━━
+🏆 Sprint Wins
+${praiseLines}`;
+
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(msg).then(()=>{ alert('คัดลอกสรุป Sprint แล้ว ✓\n\nวาง (Ctrl+V / Cmd+V) ลงกลุ่ม Slack ได้เลย'); })
+      .catch(()=>{ prompt('คัดลอกสรุปนี้ไปวางใน Slack:', msg); });
+  } else {
+    prompt('คัดลอกสรุปนี้ไปวางใน Slack:', msg);
+  }
+}
+
+// ---- Copy reminder text to clipboard (no Slack opening) ----
 function sprSlackSend(person){
   const m = window.__sprLastModel;
   if(!m){ alert('ยังไม่มีข้อมูล'); return; }
@@ -1297,18 +1352,11 @@ function sprSlackSend(person){
   }).join('\n');
   const msg = `สวัสดีค่ะ ${person} 👋\n\nขอรบกวนอัปเดต time tracking ใน Jira ก่อนปิด sprint (${m.start} → ${m.end}) นะคะ\nมี ${tasks.length} การ์ดที่ยังกรอกข้อมูลไม่ครบ:\n\n${lines}\n\nรบกวนกรอกให้ครบก่อน sprint ถัดไปนะคะ ขอบคุณมากค่ะ 🙏`;
 
-  const ok = confirm(`ส่งข้อความเตือน ${person} ทาง Slack?\n\n──────────\n${msg}\n──────────\n\nกด OK = คัดลอกข้อความ + เปิด Slack ให้ (แล้ววาง Ctrl+V ส่งเอง)`);
-  if(!ok) return;
-
-  // Slack deep-link needs a user ID, not a display name — open the workspace and
-  // let the person pick the DM, which works reliably with just a name.
-  const done = ()=>{ window.open('https://app.slack.com/client', '_blank', 'noopener'); };
-  const tip = `คัดลอกข้อความแล้ว ✓\n\nกำลังเปิด Slack — ค้นหา "${person}" แล้ววาง (Ctrl+V / Cmd+V) กดส่งได้เลย`;
   if(navigator.clipboard && navigator.clipboard.writeText){
-    navigator.clipboard.writeText(msg).then(()=>{ alert(tip); done(); })
-      .catch(()=>{ prompt('คัดลอกข้อความนี้ไปวางใน Slack ('+person+'):', msg); done(); });
+    navigator.clipboard.writeText(msg).then(()=>{ alert(`คัดลอกข้อความเตือน ${person} แล้ว ✓\n\nวาง (Ctrl+V / Cmd+V) ใน Slack ได้เลย`); })
+      .catch(()=>{ prompt('คัดลอกข้อความนี้ ('+person+'):', msg); });
   } else {
-    prompt('คัดลอกข้อความนี้ไปวางใน Slack ('+person+'):', msg); done();
+    prompt('คัดลอกข้อความนี้ ('+person+'):', msg);
   }
 }
 
